@@ -1,0 +1,23 @@
+hostnames:
+  - nodename.example.lab
+
+vlans:
+  - id: 100
+    ips:
+      - 192.168.1.1
+    prefixLength: 24
+
+  - id: 101
+    ips:
+      - 192.168.2.1
+    prefixLength: 25
+
+mtu:
+  value: 9000
+  interfaces:
+    - name: eno1
+      type: ethernet
+    - name: eno2
+      type: ethernet
+    - name: bond0
+      type: bond
