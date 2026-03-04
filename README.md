@@ -134,21 +134,34 @@ This output file contains the flattened label structure required by Autoshift.
 ## Example of Generated Output
 
 ```yaml
-nmstate-host-1-hostname: node1.example.lab
-nmstate-host-1-vlan-1: bond0.100
-nmstate-host-1-vlan-1-base: bond0
-nmstate-host-1-vlan-1-id: "100"
-nmstate-host-1-vlan-1-ipv4: static
-nmstate-host-1-vlan-1-ipv4-address-1: 192.168.1.1
-nmstate-host-1-vlan-1-ipv4-address-1-cidr: "24"
-
-nmstate-host-2-hostname: node2.example.lab
-nmstate-host-2-vlan-1: bond0.100
-nmstate-host-2-vlan-1-base: bond0
-nmstate-host-2-vlan-1-id: "100"
-nmstate-host-2-vlan-1-ipv4: static
-nmstate-host-2-vlan-1-ipv4-address-1: 192.168.1.2
-nmstate-host-2-vlan-1-ipv4-address-1-cidr: "24"
+nmstate-host-node01-vlan100-hostname: node01.example.lab
+nmstate-host-node01-vlan100-vlan-1: bond0.100
+nmstate-host-node01-vlan100-vlan-1-base: bond0
+nmstate-host-node01-vlan100-vlan-1-id: "100"
+nmstate-host-node01-vlan100-vlan-1-ipv4: static
+nmstate-host-node01-vlan100-vlan-1-ipv4-address-1: 192.168.1.1
+nmstate-host-node01-vlan100-vlan-1-ipv4-address-1-cidr: "24"
+nmstate-host-node01-vlan101-hostname: node01.example.lab
+nmstate-host-node01-vlan101-vlan-1: bond0.101
+nmstate-host-node01-vlan101-vlan-1-base: bond0
+nmstate-host-node01-vlan101-vlan-1-id: "101"
+nmstate-host-node01-vlan101-vlan-1-ipv4: static
+nmstate-host-node01-vlan101-vlan-1-ipv4-address-1: 192.168.2.1
+nmstate-host-node01-vlan101-vlan-1-ipv4-address-1-cidr: "24"
+nmstate-host-node02-vlan100-hostname: node02.example.lab
+nmstate-host-node02-vlan100-vlan-1: bond0.100
+nmstate-host-node02-vlan100-vlan-1-base: bond0
+nmstate-host-node02-vlan100-vlan-1-id: "100"
+nmstate-host-node02-vlan100-vlan-1-ipv4: static
+nmstate-host-node02-vlan100-vlan-1-ipv4-address-1: 192.168.1.2
+nmstate-host-node02-vlan100-vlan-1-ipv4-address-1-cidr: "24"
+nmstate-host-node02-vlan101-hostname: node02.example.lab
+nmstate-host-node02-vlan101-vlan-1: bond0.101
+nmstate-host-node02-vlan101-vlan-1-base: bond0
+nmstate-host-node02-vlan101-vlan-1-id: "101"
+nmstate-host-node02-vlan101-vlan-1-ipv4: static
+nmstate-host-node02-vlan101-vlan-1-ipv4-address-1: 192.168.2.2
+nmstate-host-node02-vlan101-vlan-1-ipv4-address-1-cidr: "24"
 ```
 
 Each block represents:
@@ -189,7 +202,7 @@ This repository requires:
 
 - `yq` for YAML parsing and transformation
 
-Install on RHEL or Fedora:
+Install on RHEL:
 
 ```bash
 dnf install yq
