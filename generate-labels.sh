@@ -15,8 +15,8 @@ else
   NC=''
 fi
 
-error() { echo -e "${RED}ERROR:${NC} $1"; }
-info() { echo -e "${BLUE}INFO:${NC} $1"; }
+error()   { echo -e "${RED}ERROR:${NC} $1"; }
+info()    { echo -e "${BLUE}INFO:${NC} $1"; }
 success() { echo -e "${GREEN}SUCCESS:${NC} $1"; }
 
 VALUES_FILE="${1:?Provide values.yaml}"
@@ -25,10 +25,11 @@ FORCE="${2:-}"
 BASENAME=$(basename "$VALUES_FILE" .yaml)
 OUTPUT_FILE="${BASENAME}-autoshift-nmstate-labels.yaml"
 
-BASE_IFACE="bond0"
 DEFAULT_MTU=$(yq '.mtu.value // 9000' "$VALUES_FILE")
+BOND_NAME=$(yq -r '.mtu.bond.name // "bond0"' "$VALUES_FILE")
+BOND_MODE=$(yq -r '.mtu.bond.mode // "active-backup"' "$VALUES_FILE")
 
-HOST_COUNT=$(yq '.hostnames | length' "$VALUES_FILE")
+HOST_COUNT=$(yq '.hosts | length' "$VALUES_FILE")
 VLAN_COUNT=$(yq '.vlans | length' "$VALUES_FILE")
 
 if [[ -f "$OUTPUT_FILE" && "$FORCE" != "--force" ]]; then
@@ -45,19 +46,19 @@ fi
 
 info "Validating input file..."
 
+# Check for duplicate IPs across all VLANs
 ALL_IPS=$(yq -r '.vlans[].ips[]' "$VALUES_FILE")
 DUPLICATES=$(echo "$ALL_IPS" | sort | uniq -d)
-
 if [[ -n "$DUPLICATES" ]]; then
   error "Duplicate IPs detected:"
   echo "$DUPLICATES"
   exit 1
 fi
 
+# Check each VLAN has an IP for every host
 for ((v=0; v<VLAN_COUNT; v++)); do
   VLAN_ID=$(yq ".vlans[$v].id" "$VALUES_FILE")
   IP_COUNT=$(yq ".vlans[$v].ips | length" "$VALUES_FILE")
-
   if [[ "$IP_COUNT" -ne "$HOST_COUNT" ]]; then
     error "VLAN ${VLAN_ID} has ${IP_COUNT} IPs but ${HOST_COUNT} hosts."
     exit 1
@@ -68,11 +69,14 @@ success "Validation passed."
 
 NNCP_COUNT=0
 
+# ============================================================
+# VLAN NNCP labels
+# ============================================================
 info "Generating VLAN NNCP labels..."
 
 for ((h=0; h<HOST_COUNT; h++)); do
 
-  HOSTNAME=$(yq -r ".hostnames[$h]" "$VALUES_FILE")
+  HOSTNAME=$(yq -r ".hosts[$h].hostname" "$VALUES_FILE")
   HOST_SHORT=$(echo "$HOSTNAME" | cut -d'.' -f1)
 
   for ((v=0; v<VLAN_COUNT; v++)); do
@@ -81,11 +85,9 @@ for ((h=0; h<HOST_COUNT; h++)); do
     PREFIX=$(yq ".vlans[$v].prefixLength" "$VALUES_FILE")
     IP=$(yq -r ".vlans[$v].ips[$h]" "$VALUES_FILE")
 
-    ID="node${HOST_SHORT}-vlan${VLAN_ID}"
-
     echo "nmstate-host-${HOST_SHORT}-vlan${VLAN_ID}-hostname: ${HOSTNAME}" >> "$OUTPUT_FILE"
-    echo "nmstate-host-${HOST_SHORT}-vlan${VLAN_ID}-vlan-1: ${BASE_IFACE}.${VLAN_ID}" >> "$OUTPUT_FILE"
-    echo "nmstate-host-${HOST_SHORT}-vlan${VLAN_ID}-vlan-1-base: ${BASE_IFACE}" >> "$OUTPUT_FILE"
+    echo "nmstate-host-${HOST_SHORT}-vlan${VLAN_ID}-vlan-1: ${BOND_NAME}.${VLAN_ID}" >> "$OUTPUT_FILE"
+    echo "nmstate-host-${HOST_SHORT}-vlan${VLAN_ID}-vlan-1-base: ${BOND_NAME}" >> "$OUTPUT_FILE"
     echo "nmstate-host-${HOST_SHORT}-vlan${VLAN_ID}-vlan-1-id: \"${VLAN_ID}\"" >> "$OUTPUT_FILE"
     echo "nmstate-host-${HOST_SHORT}-vlan${VLAN_ID}-vlan-1-ipv4: static" >> "$OUTPUT_FILE"
     echo "nmstate-host-${HOST_SHORT}-vlan${VLAN_ID}-vlan-1-ipv4-address-1: ${IP}" >> "$OUTPUT_FILE"
@@ -96,42 +98,46 @@ for ((h=0; h<HOST_COUNT; h++)); do
 
 done
 
+# ============================================================
+# MTU NNCP labels
+# ============================================================
 info "Generating MTU NNCP labels..."
-
-MTU_IFACE_COUNT=$(yq '.mtu.interfaces | length' "$VALUES_FILE")
 
 for ((h=0; h<HOST_COUNT; h++)); do
 
-  HOSTNAME=$(yq -r ".hostnames[$h]" "$VALUES_FILE")
+  HOSTNAME=$(yq -r ".hosts[$h].hostname" "$VALUES_FILE")
   HOST_SHORT=$(echo "$HOSTNAME" | cut -d'.' -f1)
+  IFACE_COUNT=$(yq ".hosts[$h].interfaces | length" "$VALUES_FILE")
 
   echo "nmstate-host-${HOST_SHORT}-mtu${DEFAULT_MTU}-hostname: ${HOSTNAME}" >> "$OUTPUT_FILE"
 
-  BOND_INDEX=1
+  # Bond (shared config, one per host)
+  echo "nmstate-host-${HOST_SHORT}-mtu${DEFAULT_MTU}-bond-1: ${BOND_NAME}" >> "$OUTPUT_FILE"
+  echo "nmstate-host-${HOST_SHORT}-mtu${DEFAULT_MTU}-bond-1-mtu: \"${DEFAULT_MTU}\"" >> "$OUTPUT_FILE"
+  echo "nmstate-host-${HOST_SHORT}-mtu${DEFAULT_MTU}-bond-1-mode: ${BOND_MODE}" >> "$OUTPUT_FILE"
+
+  # Per-host ethernet interfaces with MAC addresses
+  # MACs are stored with colons in the values file but must use dots in labels
+  # so the policy's replace "." ":" conversion works correctly
   ETH_INDEX=1
+  for ((i=0; i<IFACE_COUNT; i++)); do
 
-  for ((i=0; i<MTU_IFACE_COUNT; i++)); do
-
-    IF_NAME=$(yq -r ".mtu.interfaces[$i].name" "$VALUES_FILE")
-    IF_TYPE=$(yq -r ".mtu.interfaces[$i].type" "$VALUES_FILE")
-
-    if [[ "$IF_TYPE" == "bond" ]]; then
-      echo "nmstate-host-${HOST_SHORT}-mtu${DEFAULT_MTU}-bond-${BOND_INDEX}: ${IF_NAME}" >> "$OUTPUT_FILE"
-      echo "nmstate-host-${HOST_SHORT}-mtu${DEFAULT_MTU}-bond-${BOND_INDEX}-mtu: \"${DEFAULT_MTU}\"" >> "$OUTPUT_FILE"
-      echo "nmstate-host-${HOST_SHORT}-mtu${DEFAULT_MTU}-bond-${BOND_INDEX}-mode: active-backup" >> "$OUTPUT_FILE"
-      BOND_INDEX=$((BOND_INDEX+1))
+    IF_TYPE=$(yq -r ".hosts[$h].interfaces[$i].type" "$VALUES_FILE")
+    if [[ "$IF_TYPE" != "ethernet" ]]; then
+      continue
     fi
 
-    if [[ "$IF_TYPE" == "ethernet" ]]; then
-      echo "nmstate-host-${HOST_SHORT}-mtu${DEFAULT_MTU}-ethernet-${ETH_INDEX}: ${IF_NAME}" >> "$OUTPUT_FILE"
-      echo "nmstate-host-${HOST_SHORT}-mtu${DEFAULT_MTU}-ethernet-${ETH_INDEX}-mtu: \"${DEFAULT_MTU}\"" >> "$OUTPUT_FILE"
-      ETH_INDEX=$((ETH_INDEX+1))
-    fi
+    IF_NAME=$(yq -r ".hosts[$h].interfaces[$i].name" "$VALUES_FILE")
+    IF_MAC=$(yq -r ".hosts[$h].interfaces[$i].mac" "$VALUES_FILE" | tr ':' '.')
 
+    echo "nmstate-host-${HOST_SHORT}-mtu${DEFAULT_MTU}-ethernet-${ETH_INDEX}: ${IF_NAME}" >> "$OUTPUT_FILE"
+    echo "nmstate-host-${HOST_SHORT}-mtu${DEFAULT_MTU}-ethernet-${ETH_INDEX}-mac: ${IF_MAC}" >> "$OUTPUT_FILE"
+    echo "nmstate-host-${HOST_SHORT}-mtu${DEFAULT_MTU}-ethernet-${ETH_INDEX}-mtu: \"${DEFAULT_MTU}\"" >> "$OUTPUT_FILE"
+
+    ETH_INDEX=$((ETH_INDEX+1))
   done
 
   NNCP_COUNT=$((NNCP_COUNT+1))
-
 done
 
 success "Created ${NNCP_COUNT} NNCP label blocks."
