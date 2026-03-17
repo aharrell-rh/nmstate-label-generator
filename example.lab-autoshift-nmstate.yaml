@@ -1,0 +1,169 @@
+hosts:
+  node01:
+    hostname: node01.example.lab
+    networking:
+      interfaces:
+        - identifier: mac-address
+          mac-address: "aa:bb:cc:dd:ee:01"
+          name: eno6
+          type: ethernet
+          state: up
+          mtu: 9000
+
+        - identifier: mac-address
+          mac-address: "aa:bb:cc:dd:ee:02"
+          name: eno7
+          type: ethernet
+          state: up
+          mtu: 9000
+
+        - name: bond0
+          type: bond
+          state: up
+          mtu: 9000
+          link-aggregation:
+            mode: active-backup
+            port:
+              - eno6
+              - eno7
+
+        - name: bond0.100
+          type: vlan
+          state: up
+          mtu: 9000
+          vlan:
+            base-iface: bond0
+            id: 100
+          ipv4:
+            enabled: true
+            dhcp: false
+            address:
+              - ip: 192.168.1.10
+                prefix-length: 24
+
+        - name: bond0.101
+          type: vlan
+          state: up
+          mtu: 9000
+          vlan:
+            base-iface: bond0
+            id: 101
+          ipv4:
+            enabled: true
+            dhcp: false
+            address:
+              - ip: 192.168.2.10
+                prefix-length: 24
+
+  node02:
+    hostname: node02.example.lab
+    networking:
+      interfaces:
+        - identifier: mac-address
+          mac-address: "aa:bb:cc:dd:ee:03"
+          name: eno6
+          type: ethernet
+          state: up
+          mtu: 9000
+
+        - identifier: mac-address
+          mac-address: "aa:bb:cc:dd:ee:04"
+          name: eno7
+          type: ethernet
+          state: up
+          mtu: 9000
+
+        - name: bond0
+          type: bond
+          state: up
+          mtu: 9000
+          link-aggregation:
+            mode: active-backup
+            port:
+              - eno6
+              - eno7
+
+        - name: bond0.100
+          type: vlan
+          state: up
+          mtu: 9000
+          vlan:
+            base-iface: bond0
+            id: 100
+          ipv4:
+            enabled: true
+            dhcp: false
+            address:
+              - ip: 192.168.1.11
+                prefix-length: 24
+
+        - name: bond0.101
+          type: vlan
+          state: up
+          mtu: 9000
+          vlan:
+            base-iface: bond0
+            id: 101
+          ipv4:
+            enabled: true
+            dhcp: false
+            address:
+              - ip: 192.168.2.11
+                prefix-length: 24
+
+  node03:
+    hostname: node03.example.lab
+    networking:
+      interfaces:
+        - identifier: mac-address
+          mac-address: "aa:bb:cc:dd:ee:05"
+          name: eno6
+          type: ethernet
+          state: up
+          mtu: 9000
+
+        - identifier: mac-address
+          mac-address: "aa:bb:cc:dd:ee:06"
+          name: eno7
+          type: ethernet
+          state: up
+          mtu: 9000
+
+        - name: bond0
+          type: bond
+          state: up
+          mtu: 9000
+          link-aggregation:
+            mode: active-backup
+            port:
+              - eno6
+              - eno7
+
+        - name: bond0.100
+          type: vlan
+          state: up
+          mtu: 9000
+          vlan:
+            base-iface: bond0
+            id: 100
+          ipv4:
+            enabled: true
+            dhcp: false
+            address:
+              - ip: 192.168.1.12
+                prefix-length: 24
+
+        - name: bond0.101
+          type: vlan
+          state: up
+          mtu: 9000
+          vlan:
+            base-iface: bond0
+            id: 101
+          ipv4:
+            enabled: true
+            dhcp: false
+            address:
+              - ip: 192.168.2.12
+                prefix-length: 24
+
