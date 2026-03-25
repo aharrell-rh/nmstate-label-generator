@@ -11,57 +11,41 @@ It converts structured cluster networking data into the flat label format requir
 When deploying storage clusters, each node typically requires:
 
 - VLAN interfaces on a bond
-- Static IP assignments per host
+- Static IP assignments
 - MTU configuration (jumbo frames)
-- MAC-based ethernet identification for stable NIC matching
+- Consistent bond and ethernet configuration
 
 Manually generating NNCP resources or Autoshift label blocks per node does not scale.
 
 This repository automates that process.
 
-You define cluster networking once.
+You define cluster networking once.  
 The script expands it into the flattened label format Autoshift consumes.
 
 ---
 
 ## Data Model
 
-The input file follows a **cluster profile model**.
+The input file follows a **cluster profile model**, not a host-centric model.
 
 It contains:
 
-- An ordered list of hosts, each with a hostname and per-host ethernet interfaces (including MAC addresses)
-- A list of VLAN definitions with per-host IP assignments
-- Shared MTU and bond configuration
+- An ordered list of hostnames
+- A list of VLAN definitions
+- Shared MTU and interface configuration
 
-All VLANs and MTU settings apply to every host in the `hosts` list.
+All VLANs and MTU settings apply to every host in the `hostnames` list.
 
-IP addresses are assigned positionally based on host order.
-
-MAC addresses are per-host because physical NICs differ between nodes.
+IP addresses are assigned positionally based on hostname order.
 
 ---
 
 ## Input File Example: `example.lab.yaml`
 
 ```yaml
-hosts:
-  - hostname: node1.example.lab
-    interfaces:
-      - name: eno1
-        mac: "aa:bb:cc:dd:ee:01"
-        type: ethernet
-      - name: eno2
-        mac: "aa:bb:cc:dd:ee:02"
-        type: ethernet
-  - hostname: node2.example.lab
-    interfaces:
-      - name: eno1
-        mac: "aa:bb:cc:dd:ee:03"
-        type: ethernet
-      - name: eno2
-        mac: "aa:bb:cc:dd:ee:04"
-        type: ethernet
+hostnames:
+  - node1.example.lab
+  - node2.example.lab
 
 vlans:
   - id: 100
@@ -78,12 +62,14 @@ vlans:
 
 mtu:
   value: 9000
-  bond:
-    name: bond0
-    mode: active-backup
+  interfaces:
+    - name: eno1
+      type: ethernet
+    - name: eno2
+      type: ethernet
+    - name: bond0
+      type: bond
 ```
-
-MAC addresses can be written with colons in the input file. The script automatically converts them to dot notation required by Kubernetes labels.
 
 ---
 
@@ -91,16 +77,16 @@ MAC addresses can be written with colons in the input file. The script automatic
 
 IP assignment is positional.
 
-The order of `hosts` must match the order of IPs inside each VLAN.
+The order of `hostnames` must match the order of IPs inside each VLAN.
 
 Example mapping:
 
-| Host              | VLAN 100 IP | VLAN 101 IP |
-|-------------------|-------------|-------------|
-| node1.example.lab | 192.168.1.1 | 192.168.2.1 |
-| node2.example.lab | 192.168.1.2 | 192.168.2.2 |
+| Host                | VLAN 100 IP | VLAN 101 IP |
+|---------------------|-------------|-------------|
+| node1.example.lab   | 192.168.1.1 | 192.168.2.1 |
+| node2.example.lab   | 192.168.1.2 | 192.168.2.2 |
 
-The script uses the index of the host to select the corresponding IP in each VLAN list.
+The script uses the index of the hostname to select the corresponding IP in each VLAN list.
 
 ---
 
@@ -108,18 +94,22 @@ The script uses the index of the host to select the corresponding IP in each VLA
 
 The `generate-labels.sh` script:
 
-1. Reads the input YAML file
-2. Validates there are no duplicate IPs and every VLAN has exactly one IP per host
-3. Iterates over each host and VLAN to generate per-host VLAN label blocks
-4. Iterates over each host to generate MTU label blocks covering the bond and all ethernet interfaces
-5. Outputs a file formatted for Autoshift
+1. Reads `example.lab.yaml`
+2. Iterates over each hostname
+3. Applies MTU configuration to defined interfaces
+4. Configures bond settings (if defined)
+5. Iterates over each VLAN
+6. Assigns the IP matching the hostname index
+7. Generates flattened NMState label entries
+8. Outputs a file formatted for Autoshift
 
 This effectively performs:
 
 ```
-hosts × vlans  (VLAN blocks)
-hosts × interfaces  (MTU blocks)
+hostnames × vlans
 ```
+
+Plus shared interface configuration.
 
 ---
 
@@ -131,52 +121,45 @@ Run the following command from the repository root:
 sh generate-labels.sh example.lab.yaml
 ```
 
-To overwrite an existing output file without prompting:
-
-```bash
-sh generate-labels.sh example.lab.yaml --force
-```
-
 This generates:
 
 ```
-example.lab-autoshift-nmstate-labels.yaml
+example.lab-autoshift-nmstate-label.yaml
 ```
+
+This output file contains the flattened label structure required by Autoshift.
 
 ---
 
 ## Example of Generated Output
 
-For each host the script produces two groups of label blocks.
-
-**VLAN blocks** (one per host per VLAN):
-
 ```yaml
-nmstate-host-node1-vlan100-hostname: node1.example.lab
-nmstate-host-node1-vlan100-vlan-1: bond0.100
-nmstate-host-node1-vlan100-vlan-1-base: bond0
-nmstate-host-node1-vlan100-vlan-1-id: "100"
-nmstate-host-node1-vlan100-vlan-1-ipv4: static
-nmstate-host-node1-vlan100-vlan-1-ipv4-address-1: 192.168.1.1
-nmstate-host-node1-vlan100-vlan-1-ipv4-address-1-cidr: "24"
+nmstate-host-1-hostname: node1.example.lab
+nmstate-host-1-vlan-1: bond0.100
+nmstate-host-1-vlan-1-base: bond0
+nmstate-host-1-vlan-1-id: "100"
+nmstate-host-1-vlan-1-ipv4: static
+nmstate-host-1-vlan-1-ipv4-address-1: 192.168.1.1
+nmstate-host-1-vlan-1-ipv4-address-1-cidr: "24"
+
+nmstate-host-2-hostname: node2.example.lab
+nmstate-host-2-vlan-1: bond0.100
+nmstate-host-2-vlan-1-base: bond0
+nmstate-host-2-vlan-1-id: "100"
+nmstate-host-2-vlan-1-ipv4: static
+nmstate-host-2-vlan-1-ipv4-address-1: 192.168.1.2
+nmstate-host-2-vlan-1-ipv4-address-1-cidr: "24"
 ```
 
-**MTU blocks** (one per host, covering bond + all ethernet interfaces):
+Each block represents:
 
-```yaml
-nmstate-host-node1-mtu9000-hostname: node1.example.lab
-nmstate-host-node1-mtu9000-bond-1: bond0
-nmstate-host-node1-mtu9000-bond-1-mtu: "9000"
-nmstate-host-node1-mtu9000-bond-1-mode: active-backup
-nmstate-host-node1-mtu9000-ethernet-1: eno1
-nmstate-host-node1-mtu9000-ethernet-1-mac: aa.bb.cc.dd.ee.01
-nmstate-host-node1-mtu9000-ethernet-1-mtu: "9000"
-nmstate-host-node1-mtu9000-ethernet-2: eno2
-nmstate-host-node1-mtu9000-ethernet-2-mac: aa.bb.cc.dd.ee.02
-nmstate-host-node1-mtu9000-ethernet-2-mtu: "9000"
-```
+- A specific host
+- A specific VLAN interface
+- Static IP configuration
+- MTU and interface settings
 
-Because ethernet labels include a MAC address, Autoshift will render `identifier: mac-address` in the resulting NNCP. NMState matches each NIC by MAC and uses the `name` as the NetworkManager profile name, ensuring stable NIC matching regardless of kernel interface naming.
+You do not manually write this.  
+The script generates it deterministically.
 
 ---
 
@@ -192,7 +175,7 @@ Instead:
 
 Autoshift then:
 
-- Selects nodes via hostname nodeSelector
+- Selects nodes via labels
 - Generates NodeNetworkConfigurationPolicy resources
 - Applies configuration through NMState
 
@@ -202,9 +185,11 @@ No manual NNCP authoring required.
 
 ## Dependency
 
-This repository requires `yq` for YAML parsing.
+This repository requires:
 
-Install on RHEL:
+- `yq` for YAML parsing and transformation
+
+Install on RHEL or Fedora:
 
 ```bash
 dnf install yq
@@ -214,22 +199,20 @@ dnf install yq
 
 ## Future Automation
 
-Currently the input YAML is manually created using:
+Currently, `example.lab.yaml` is manually created using:
 
-- Hostnames and MAC addresses from Cisco Intersight
+- Hostnames from Cisco Intersight
 - VLAN/IP allocation data from the networking team
 
 A future enhancement would:
 
-- Pull host inventory and MAC addresses directly from the Intersight API
-- Merge with VLAN/IP allocations
+- Pull host inventory directly from the Intersight API
+- Merge it with VLAN/IP allocations
 - Automatically generate the input YAML
 
 Target end state:
 
-```
 Intersight API + Networking data → Auto-generated input → Label generation → Autoshift → NNCP
-```
 
 ---
 
@@ -238,14 +221,11 @@ Intersight API + Networking data → Auto-generated input → Label generation �
 This repository:
 
 - Eliminates manual NNCP label creation
-- Ensures consistent host-to-VLAN IP mapping
+- Ensures consistent host-to-VLAN mapping
 - Enforces ordered IP assignment
-- Generates MAC-based ethernet labels for stable NIC identification
 - Scales cleanly across storage clusters
 - Separates structured data definition from configuration generation
 
 Workflow recap:
 
-```
 Create input YAML → Run script → Generate labels → Insert into Autoshift values → Autoshift applies configuration automatically
-```
