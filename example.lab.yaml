@@ -1,37 +1,23 @@
-hosts:
-  - hostname: node01.example.lab
-    interfaces:
-      - mac: "aa:bb:cc:dd:ee:01"
-        name: eno1
-        type: ethernet
-      - mac: "aa:bb:cc:dd:ee:02"
-        name: eno2
-        type: ethernet
-        
-  - hostname: node02.example.lab
-    interfaces:
-      - mac: "aa:bb:cc:dd:ee:03"
-        name: eno1
-        type: ethernet
-      - mac: "aa:bb:cc:dd:ee:04"
-        name: eno2
-        type: ethernet
+hostnames:
+  - nodename.example.lab
 
 vlans:
   - id: 100
-    prefixLength: 24
     ips:
       - 192.168.1.1
-      - 192.168.1.2
-      
-  - id: 101
     prefixLength: 24
+
+  - id: 101
     ips:
       - 192.168.2.1
-      - 192.168.2.2
+    prefixLength: 25
 
 mtu:
   value: 9000
-  bond:
-    name: bond0
-    mode: active-backup
+  interfaces:
+    - name: eno1
+      type: ethernet
+    - name: eno2
+      type: ethernet
+    - name: bond0
+      type: bond
