@@ -1,0 +1,94 @@
+networking:
+  interfaces:
+    bond0-vlan100:
+      name: bond0.100
+      type: vlan
+      state: up
+      ipv4: static
+      ipv6: disabled
+      base: bond0
+      id: 100
+    bond0-vlan101:
+      name: bond0.101
+      type: vlan
+      state: up
+      ipv4: static
+      ipv6: disabled
+      base: bond0
+      id: 101
+    eno1:
+      name: eno1
+      type: ethernet
+      state: up
+      mtu: 9000
+    eno2:
+      name: eno2
+      type: ethernet
+      state: up
+      mtu: 9000
+    bond0:
+      name: bond0
+      type: bond
+      state: up
+      mtu: 9000
+      ipv4: disabled
+      ipv6: disabled
+      mode: active-backup
+
+hosts:
+  node1-vlan100:
+    hostname: node1.example.lab
+    networking:
+      interfaces:
+        bond0-vlan100:
+          ipv4:
+            addresses:
+              - ip: 192.168.1.1
+                prefixLength: 24
+  node1-vlan101:
+    hostname: node1.example.lab
+    networking:
+      interfaces:
+        bond0-vlan101:
+          ipv4:
+            addresses:
+              - ip: 192.168.2.1
+                prefixLength: 25
+  node1-mtu:
+    hostname: node1.example.lab
+    networking:
+      interfaces:
+        eno1:
+          {}
+        eno2:
+          {}
+        bond0:
+          {}
+  node2-vlan100:
+    hostname: node2.example.lab
+    networking:
+      interfaces:
+        bond0-vlan100:
+          ipv4:
+            addresses:
+              - ip: 192.168.1.2
+                prefixLength: 24
+  node2-vlan101:
+    hostname: node2.example.lab
+    networking:
+      interfaces:
+        bond0-vlan101:
+          ipv4:
+            addresses:
+              - ip: 192.168.2.2
+                prefixLength: 25
+  node2-mtu:
+    hostname: node2.example.lab
+    networking:
+      interfaces:
+        eno1:
+          {}
+        eno2:
+          {}
+        bond0:
+          {}

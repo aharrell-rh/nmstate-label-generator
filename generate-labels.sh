@@ -1,20 +1,19 @@
 #!/usr/bin/env bash
 # generate-labels.sh
 # Converts a cluster networking YAML into the config dictionary format
-# consumed by the Autoshift rendered-config ConfigMap / policy-nmstate-nncp.
+# consumed by the Autoshift policy-nmstate-nncp policy (original, unmodified).
 #
-# Output structure:
-#   networking.interfaces.<id>                        — cluster-wide (MTU, bond, VLAN topology)
-#   hosts.<shortname>.networking.interfaces.<id>      — per-host VLAN IP overrides
+# Each node gets one host entry per VLAN and one for MTU, producing:
+#   nmstate-host-<node>-vlan<id>    NNCP  → bond0.<id>, static IP, nodeSelector
+#   nmstate-host-<node>-mtu         NNCP  → eno1 + eno2 + bond0 MTU, nodeSelector
 #
-# This produces:
-#   • 1 cluster-wide NNCP per MTU/bond/ethernet interface
-#   • 1 per-host NNCP per VLAN per node  (HOST_COUNT × VLAN_COUNT total)
+# The hostname field in each host entry carries the full FQDN so the policy
+# uses it directly as the kubernetes.io/hostname nodeSelector value.
 #
 # Usage:
 #   sh generate-labels.sh <values-file.yaml> [--force]
 #
-# Requires: yq (mikefarah/yq v4+)
+# Requires: yq (mikefarah/yq v4.6+)
 
 set -euo pipefail
 
@@ -51,7 +50,7 @@ if [[ -f "$OUTPUT_FILE" && "$FORCE" != "--force" ]]; then
 fi
 
 # ── read dimensions ───────────────────────────────────────────────────────────
-DEFAULT_MTU=$(yq '.mtu.value // 9000' "$VALUES_FILE")
+DEFAULT_MTU=$(yq '.mtu.value' "$VALUES_FILE")
 HOST_COUNT=$(yq '.hostnames | length' "$VALUES_FILE")
 VLAN_COUNT=$(yq '.vlans | length' "$VALUES_FILE")
 MTU_IFACE_COUNT=$(yq '.mtu.interfaces | length' "$VALUES_FILE")
@@ -64,7 +63,7 @@ if [[ "$VLAN_COUNT" -lt 1 ]]; then
   exit 1
 fi
 
-DUPLICATES=$(yq -r '.vlans[].ips[]' "$VALUES_FILE" | sort | uniq -d)
+DUPLICATES=$(yq '.vlans[].ips[]' "$VALUES_FILE" | sort | uniq -d)
 if [[ -n "$DUPLICATES" ]]; then
   error "Duplicate IP addresses detected:"
   echo "$DUPLICATES" >&2
@@ -91,42 +90,21 @@ success "Validation passed."
 TMPFILE=$(mktemp)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# networking.interfaces  (cluster-wide)
+# networking.interfaces  (topology — tells the policy how to render each iface)
 #
-# MTU / bond / ethernet:
-#   Policy renders one NNCP per entry with mtu + bond config, applied to all
-#   matching nodes without a per-host nodeSelector.
+# VLAN entries:  type / name / base / id / ipv4 mode
+# MTU entries:   type / name / mtu / mode
 #
-# VLAN topology entries:
-#   Define type / name / base / id / ipv4-mode for each VLAN.
-#   The policy merges this with the per-host IP override at render time.
+# These are ALL per-host (every key appears in at least one host block), so
+# the policy will skip them in the cluster-wide loop and only render them
+# as part of the per-host NNCPs.
 # ─────────────────────────────────────────────────────────────────────────────
 cat >> "$TMPFILE" <<EOF
 networking:
   interfaces:
 EOF
 
-# ethernet + bond MTU interfaces
-for ((i=0; i<MTU_IFACE_COUNT; i++)); do
-  IF_NAME=$(yq -r ".mtu.interfaces[$i].name" "$VALUES_FILE")
-  IF_TYPE=$(yq -r ".mtu.interfaces[$i].type" "$VALUES_FILE")
-
-  cat >> "$TMPFILE" <<EOF
-    ${IF_NAME}:
-      name: ${IF_NAME}
-      type: ${IF_TYPE}
-      state: up
-      mtu: ${DEFAULT_MTU}
-      ipv4: disabled
-      ipv6: disabled
-EOF
-
-  if [[ "$IF_TYPE" == "bond" ]]; then
-    echo "      mode: active-backup" >> "$TMPFILE"
-  fi
-done
-
-# VLAN topology (no IPs — IPs live in hosts.<host>.networking.interfaces)
+# VLAN topology entries
 for ((v=0; v<VLAN_COUNT; v++)); do
   VLAN_ID=$(yq ".vlans[$v].id" "$VALUES_FILE")
   IFACE_KEY="${BASE_IFACE}-vlan${VLAN_ID}"
@@ -143,16 +121,45 @@ for ((v=0; v<VLAN_COUNT; v++)); do
 EOF
 done
 
+# MTU interface topology entries
+for ((i=0; i<MTU_IFACE_COUNT; i++)); do
+  IF_NAME=$(yq ".mtu.interfaces[$i].name" "$VALUES_FILE")
+  IF_TYPE=$(yq ".mtu.interfaces[$i].type" "$VALUES_FILE")
+
+  if [[ "$IF_TYPE" == "bond" ]]; then
+    cat >> "$TMPFILE" <<EOF
+    ${IF_NAME}:
+      name: ${IF_NAME}
+      type: ${IF_TYPE}
+      state: up
+      mtu: ${DEFAULT_MTU}
+      ipv4: disabled
+      ipv6: disabled
+      mode: active-backup
+EOF
+  else
+    cat >> "$TMPFILE" <<EOF
+    ${IF_NAME}:
+      name: ${IF_NAME}
+      type: ${IF_TYPE}
+      state: up
+      mtu: ${DEFAULT_MTU}
+EOF
+  fi
+done
+
 # ─────────────────────────────────────────────────────────────────────────────
-# hosts  (per-host)
+# hosts
 #
-# Key = short hostname (first label before the first dot).
-# Policy appends $clusterDomain from the managed cluster's DNS lookup to build
-# the full kubernetes.io/hostname nodeSelector value.
-# Set hosts.<key>.hostname explicitly if you need to pin the exact string.
+# One entry per VLAN per node  → policy renders nmstate-host-<key>
+# One MTU entry per node       → policy renders nmstate-host-<key>
 #
-# Each entry only carries IP overrides; type/base/id/ipv4-mode are inherited
-# from networking.interfaces above at policy render time.
+# Key format:
+#   <short>-vlan<id>   e.g. node1-vlan100
+#   <short>-mtu        e.g. node1-mtu
+#
+# Each entry carries hostname: <full-fqdn> so the policy uses it directly
+# as the kubernetes.io/hostname nodeSelector — no clusterDomain lookup needed.
 # ─────────────────────────────────────────────────────────────────────────────
 cat >> "$TMPFILE" <<EOF
 
@@ -160,22 +167,22 @@ hosts:
 EOF
 
 for ((h=0; h<HOST_COUNT; h++)); do
-  HOSTNAME=$(yq -r ".hostnames[$h]" "$VALUES_FILE")
+  HOSTNAME=$(yq ".hostnames[$h]" "$VALUES_FILE")
   SHORT=$(echo "$HOSTNAME" | cut -d. -f1)
 
-  cat >> "$TMPFILE" <<EOF
-  ${SHORT}:
-    networking:
-      interfaces:
-EOF
-
+  # One host entry per VLAN
   for ((v=0; v<VLAN_COUNT; v++)); do
     VLAN_ID=$(yq ".vlans[$v].id" "$VALUES_FILE")
     VLAN_PREFIX=$(yq ".vlans[$v].prefixLength" "$VALUES_FILE")
-    IP=$(yq -r ".vlans[$v].ips[$h]" "$VALUES_FILE")
+    IP=$(yq ".vlans[$v].ips[$h]" "$VALUES_FILE")
     IFACE_KEY="${BASE_IFACE}-vlan${VLAN_ID}"
+    HOST_KEY="${SHORT}-vlan${VLAN_ID}"
 
     cat >> "$TMPFILE" <<EOF
+  ${HOST_KEY}:
+    hostname: ${HOSTNAME}
+    networking:
+      interfaces:
         ${IFACE_KEY}:
           ipv4:
             addresses:
@@ -183,11 +190,33 @@ EOF
                 prefixLength: ${VLAN_PREFIX}
 EOF
   done
+
+  # One MTU host entry per node — lists all MTU interfaces
+  HOST_KEY="${SHORT}-mtu"
+
+  cat >> "$TMPFILE" <<EOF
+  ${HOST_KEY}:
+    hostname: ${HOSTNAME}
+    networking:
+      interfaces:
+EOF
+
+  for ((i=0; i<MTU_IFACE_COUNT; i++)); do
+    IF_NAME=$(yq ".mtu.interfaces[$i].name" "$VALUES_FILE")
+
+    cat >> "$TMPFILE" <<EOF
+        ${IF_NAME}:
+          {}
+EOF
+  done
+
 done
 
 mv "$TMPFILE" "$OUTPUT_FILE"
 
 # ── summary ───────────────────────────────────────────────────────────────────
 VLAN_NNCPS=$(( HOST_COUNT * VLAN_COUNT ))
+MTU_NNCPS=${HOST_COUNT}
+TOTAL=$(( VLAN_NNCPS + MTU_NNCPS ))
 success "Written to ${OUTPUT_FILE}"
-success "Will render: ${MTU_IFACE_COUNT} cluster-wide interface NNCP(s) + ${VLAN_NNCPS} per-host VLAN NNCP(s)"
+success "Will render: ${VLAN_NNCPS} VLAN NNCP(s) + ${MTU_NNCPS} MTU NNCP(s) = ${TOTAL} total"
